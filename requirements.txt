@@ -1,0 +1,11 @@
+openai==1.84.0
+transformers== 4.52.4
+
+git+https://github.com/openai/CLIP.git
+
+# Install Torch
+
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch 
+torchvision 
+torchaudio
