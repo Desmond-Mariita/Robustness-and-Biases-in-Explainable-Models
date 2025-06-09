@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
+from transformers import BitsAndBytesConfig
 
 
 class PJXAttention(nn.Module):
@@ -37,26 +38,32 @@ class PJXAttention(nn.Module):
 class ExplanationDecoder(nn.Module):
     """
     Transformer-based decoder to generate textual justifications.
-    Uses GPT-4 (via HuggingFace compatible AutoModelForCausalLM).
+    Uses Mistral-7B-Instruct for local generation.
     """
-    def __init__(self, model_name='openai-community/gpt-4'):  # Ensure GPT-4 is available on HF
+    def __init__(self, model_name='mistralai/Mistral-7B-Instruct-v0.2'):
         super(ExplanationDecoder, self).__init__()
-        self.decoder = AutoModelForCausalLM.from_pretrained(model_name)
+        quant_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_use_double_quant=True,
+                                          bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
+        self.decoder = AutoModelForCausalLM.from_pretrained(model_name, quantization_config=quant_config, device_map='auto')
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
     def forward(self, context_vector, prompt_text=None, max_len=60):
         """
         Args:
-            context_vector: (B, D) vector from attention-weighted image features (not directly used in text-only decoder)
+            context_vector: (B, D) vector from attention-weighted image features
             prompt_text: list of strings to prime decoder
         Returns:
             generated_texts: list of decoded strings
         """
         B, D = context_vector.size()
-        if prompt_text is None:
-            prompt_text = ["Because"] * B
 
+        # Convert context vector into textual embedding prompt if needed
+        if prompt_text is None:
+            prompt_text = ["Explain the answer based on this visual context:"] * B
+
+        # Basic example of conditioning: append a summary token from context vector
+        # In production, use learned adapters or prefix-tuning
         inputs = self.tokenizer(prompt_text, return_tensors='pt', padding=True, truncation=True).to(context_vector.device)
         outputs = self.decoder.generate(
             input_ids=inputs['input_ids'],
@@ -74,7 +81,7 @@ class ExplanationDecoder(nn.Module):
 class PJXModel(nn.Module):
     """
     PJ-X Model combining visual question answering with explanations.
-    Uses CLIP vision encoder, a transformer for text encoding, and GPT-4 for decoding.
+    Uses CLIP vision encoder, a transformer for text encoding, and Mistral-7B for decoding.
     """
     def __init__(self, vision_encoder, text_encoder_model='bert-base-uncased', hidden_dim=512, num_answers=4):
         super(PJXModel, self).__init__()
@@ -95,7 +102,7 @@ class PJXModel(nn.Module):
             nn.Linear(hidden_dim, num_answers)
         )
 
-        self.decoder = ExplanationDecoder(model_name='openai-community/gpt-4')
+        self.decoder = ExplanationDecoder(model_name='mistralai/Mistral-7B-Instruct-v0.2')
 
     def forward(self, image, question_texts, answer_choices=None):
         """
@@ -126,3 +133,5 @@ class PJXModel(nn.Module):
         explanations = self.decoder(context_vector)
 
         return answer_logits, attn_weights, explanations
+
+

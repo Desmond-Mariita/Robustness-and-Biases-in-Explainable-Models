@@ -1,7 +1,8 @@
+accelerate-1.7.0
+bitsandbytes==0.46.0
+git+https://github.com/openai/CLIP.git
 openai==1.84.0
 transformers== 4.52.4
-
-git+https://github.com/openai/CLIP.git
 
 # Install Torch
 
